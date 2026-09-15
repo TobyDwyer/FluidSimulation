@@ -2,67 +2,82 @@ extends Node2D
 
 @export var particle_size: float = 10
 @export var num_particles: int = 20
+@export var gravity: Vector2 = Vector2(0, 980)
+@export var wall_damping: float = 0.5
 
 # The starting pos params for the particles.
 var xmin: int = -100
 var ymin: int = -100
 var xmax: int = 100
 var ymax: int = 100
+
 # Container postion and size
 var container_pos: Vector2 = Vector2(0, 0)
 var container_size: Vector2 = Vector2(1000, 600)
 
-var particles: Array[RigidBody2D] = []
+# Simulation state. One entry per particle — index i is the same
+# particle in every array. More arrays get added as you go:
+# forces, densities, pressures.
+var positions: PackedVector2Array = PackedVector2Array()
+var velocities: PackedVector2Array = PackedVector2Array()
 
 func _ready():
-	make_container()
 	for i in range(num_particles):
 		spawn_particle()
-	
+
 func spawn_particle():
-	var particle = RigidBody2D.new()
-	# Give each pariticle a slightly random starting point
-	particle.position = Vector2(randf_range(xmin,xmax), randf_range(ymin,ymax))
-	
-	# give the particles collisions
-	var collision = CollisionShape2D.new()
-	var circle = CircleShape2D.new()
-	
-	circle.radius = particle_size
-	collision.shape = circle
-	
-	particle.add_child(collision)
-	# add completed particle with shape and collision 
-	add_child(particle)
-	# store in array
-	particles.append(particle)
-		
-#	Create the physics body for the container for the fluid
-func make_container():
-#	Create the static body object this is the parent of the shape
-	var container = StaticBody2D.new()
-#	Use collision polygon so objects can exist inside.
-	var poly = CollisionPolygon2D.new()
-	var h = container_size / 2
-	
-#	set the bounds of all the corners of the polygon
-	poly.polygon = PackedVector2Array([
-		Vector2(-h.x, -h.y),   # top-left
-		Vector2( h.x, -h.y),   # top-right
-		Vector2( h.x,  h.y),   # bottom-right
-		Vector2(-h.x,  h.y),   # bottom-left
-	])
-	poly.build_mode = CollisionPolygon2D.BUILD_SEGMENTS
-	
-#	Add the poly shape to the conatiner body
-	container.add_child(poly)
-	add_child(container)
-	
+	# Give each particle a slightly random starting point
+	positions.append(Vector2(randf_range(xmin, xmax), randf_range(ymin, ymax)))
+	# Starts at rest. Nothing moves it yet — that arrives with the integrator.
+	velocities.append(Vector2.ZERO)
+
 func _draw():
-#	Rect2 starts in the top left so we have to maek ti so that it is offset by half 
-	draw_rect(Rect2(container_pos-container_size/2,container_size),Color.WHITE,false,2.0)
-	for p in particles:
-		draw_circle(p.position, particle_size,Color.WHITE)
+	draw_rect(bounds(), Color.WHITE, false, 2.0)
+	for pos in positions:
+		draw_circle(pos, particle_size, Color.WHITE)
+
+# The box the fluid lives in. Used for drawing now, and for
+# boundary resolution once particles start moving.
+func bounds() -> Rect2:
+	return Rect2(container_pos - container_size / 2, container_size)
+	
+func resolve_bounds(i: int):
+#	Get all the varibles to peform the calculations
+	var b = bounds()
+	var r = particle_size
+	var pos = positions[i]
+	var vel = velocities[i]
+	
+#	Check if the particle is outside the bounds and if it is apply wall dampening and send in opposite direction
+# 	Left
+	if pos.x < b.position.x + r:
+		pos.x = b.position.x + r
+		vel.x *= -wall_damping
+# 	Right 
+	elif pos.x > b.end.x - r:
+		pos.x = b.end.x  - r
+		vel.x *= -wall_damping
+#	Top
+	if pos.y < b.position.y + r:
+		pos.y = b.position.y + r
+		vel.y *= -wall_damping
+#	Bottom
+	elif pos.y > b.end.y - r:
+		pos.y = b.end.y - r
+		vel.y *= -wall_damping
+	
+	positions[i] = pos
+	velocities[i] = vel
+
+func  apply_gravity(i:int, delta: float):
+	velocities[i] += gravity * delta
+	positions[i] += velocities[i] * delta
+	
+
+
 
 func _physics_process(delta):
-		queue_redraw()
+	for i in range(positions.size()):
+		apply_gravity(i,delta)
+		resolve_bounds(i)
+	queue_redraw()
