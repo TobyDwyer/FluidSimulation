@@ -1,15 +1,18 @@
 extends Node2D
 
-@export var particle_size: float = 4
-@export var num_particles: int = 100
-@export var gravity: Vector2 = Vector2(0, 980)
-@export_range(0.0, 1.0) var wall_damping: float = 0.5
+@export var substeps: int = 1
+@export var max_speed: float = 2000.0
 
-@export var smoothing_scale:float = 16
-@export var rest_density:float = 0.25
+@export var particle_size: float = 4
+@export var num_particles: int = 150
+@export var gravity: Vector2 = Vector2(0, 980)
+@export_range(0.0, 1.0) var wall_damping: float = 0.8
+
+@export var smoothing_scale:float = 24.0
+@export var rest_density:float = 0.8
 @export var spacing:float = 8
-@export var stiffness:float = 200.0
-@export var viscosity: float = 50.0
+@export var stiffness:float = 5.0e5
+@export var viscosity: float = 300
 var mass: float = 0.0
 
 var poly6_const:float = 0.0
@@ -17,16 +20,9 @@ var spiky_grad_const:float = 0.0
 var visc_lap_const:float = 0.0
 var h_sq: float = 0.0
 
-# The starting pos params for the particles.
-var xmin: int = -100
-var ymin: int = -100
-var xmax: int = 100
-var ymax: int = 100
-
-
 # Container postion and size
 var container_pos: Vector2 = Vector2(0, 0)
-var container_size: Vector2 = Vector2(300, 300)
+var container_size: Vector2 = Vector2(100, 500)
 
 # Simulation state. One entry per particle — index i is the same
 # particle in every array. More arrays get added as you go:
@@ -54,12 +50,17 @@ func _ready():
 		container_pos - container_size / 2.0,
 		container_size
 	)
-	for i in range(num_particles):
-		spawn_particle()
+	var cols := int(ceil(sqrt(float(num_particles))))
+	var origin := container_pos - Vector2(cols, cols) * spacing * 0.5
+	for i in num_particles:
+		var gx := i % cols
+		var gy := i / cols
+		var jitter := Vector2(randf_range(-0.1, 0.1), randf_range(-0.1, 0.1)) * spacing
+		spawn_particle(origin + Vector2(gx, gy) * spacing + jitter)
 
-func spawn_particle():
+func spawn_particle(pos: Vector2):
 	# Give each particle a slightly random starting point
-	positions.append(Vector2(randf_range(xmin, xmax), randf_range(ymin, ymax)))
+	positions.append(pos)
 	# Starts at rest. Nothing moves it yet — that arrives with the integrator.
 	velocities.append(Vector2.ZERO)
 	densities.append(rest_density)
@@ -132,6 +133,7 @@ func calculate_pressure():
 	for i in n:
 		var pressure = stiffness * (densities[i] - rest_density)
 #	    Play around with clamping to 0 vs not
+		#pressures[i] = maxf(0.0, pressure)
 		pressures[i] = pressure
 	
 func spiky_gradient(offset:Vector2, r: float) -> Vector2:
@@ -163,9 +165,7 @@ func calculate_forces():
 			var offset = pos_i - positions[j]
 			var r_sq = offset.length_squared()
 			if r_sq >= h_sq or r_sq == 0.0: continue
-			
-			var vel_diff = velocities[j] - vel_i
-			
+
 			#var r = offset.length()
 			var r = sqrt(r_sq)
 			
@@ -180,22 +180,31 @@ func calculate_forces():
 			forcesComb += (viscosity *mass *velocity_difference /density_j * viscosity_lap(r))
 
 		forces[i] = forcesComb
-		forces[i] = forcesComb
 		
-func  integrate_forces(i:int, delta: float):
+func integrate_forces(i: int, delta: float):
 	var density = maxf(densities[i], 0.00001)
-#	Acceleration from pressure + velocity
 	var acceleration = (forces[i] / density + gravity)
+	var vel = velocities[i] + acceleration * delta
 	
-	velocities[i] += acceleration * delta
-	positions[i] += velocities[i] * delta
+	var speed_sq = vel.length_squared()
+	
+	if speed_sq > max_speed * max_speed:
+		vel = vel / sqrt(speed_sq) * max_speed
+		
+	velocities[i] = vel
+	positions[i] += vel * delta
 	
 	
-func _physics_process(delta):
+func step(dt: float):
 	calculate_density()
 	calculate_pressure()
 	calculate_forces()
 	for i in range(positions.size()):
-		integrate_forces(i,delta)
+		integrate_forces(i, dt)
 		resolve_bounds(i)
+
+func _physics_process(delta):
+	var sub_dt = delta / float(substeps)
+	for _s in substeps:
+		step(sub_dt)
 	queue_redraw()
