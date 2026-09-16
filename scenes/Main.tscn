@@ -1,8 +1,8 @@
-[gd_scene load_steps=2 format=3 uid="uid://b6kkfkw1py52c"]
+[gd_scene format=3 uid="uid://b6kkfkw1py52c"]
 
 [ext_resource type="Script" uid="uid://matjycb0u83a" path="res://scripts/main.gd" id="1_elqb8"]
 
-[node name="Main" type="Node2D"]
+[node name="Main" type="Node2D" unique_id=346857741]
 script = ExtResource("1_elqb8")
 
-[node name="Camera2D" type="Camera2D" parent="."]
+[node name="Camera2D" type="Camera2D" parent="." unique_id=2097665209]
